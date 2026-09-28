@@ -1,0 +1,1111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ultrasonic Flaw Detector</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #070d1a;
+    --bg-2: #0c1628;
+    --panel: rgba(18, 32, 58, 0.72);
+    --panel-border: rgba(90, 170, 255, 0.18);
+    --text: #e8f0ff;
+    --muted: #8fa3c4;
+    --accent: #3ea6ff;
+    --accent-2: #26e0c4;
+    --warn: #ff7a59;
+    --good: #4be38a;
+    --steel-light: #56698a;
+    --font-title: "Space Grotesk", "Segoe UI", sans-serif;
+    --font-body: "Inter", "Segoe UI", sans-serif;
+    --font-mono: "JetBrains Mono", Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    background: #03060d;
+    color: var(--text);
+    font-family: var(--font-body);
+    overflow: hidden;
+  }
+
+  /* ---------- Stage (16:9, scaled to screen) ---------- */
+  #viewport {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  #stage {
+    width: 1280px;
+    height: 720px;
+    position: relative;
+    flex-shrink: 0;
+    transform-origin: center center;
+    background:
+      radial-gradient(ellipse at 85% 10%, rgba(62, 166, 255, 0.16), transparent 55%),
+      radial-gradient(ellipse at 5% 95%, rgba(38, 224, 196, 0.10), transparent 50%),
+      linear-gradient(160deg, var(--bg-2), var(--bg));
+    overflow: hidden;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+  }
+
+  #stage::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(62, 166, 255, 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(62, 166, 255, 0.05) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+  }
+
+  /* ---------- Slides ---------- */
+  .slide {
+    position: absolute;
+    inset: 0;
+    padding: 64px 80px 70px;
+    display: flex;
+    flex-direction: column;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateX(40px);
+    transition: opacity 0.5s ease, transform 0.5s ease, visibility 0.5s;
+  }
+
+  .slide.active {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(0);
+  }
+
+  .slide.prev { transform: translateX(-40px); }
+
+  .reveal {
+    opacity: 0;
+    transform: translateY(18px);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+    transition-delay: calc(var(--i, 0) * 0.12s + 0.15s);
+  }
+
+  .slide.active .reveal {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* ---------- Typography ---------- */
+  .kicker {
+    font-family: var(--font-mono);
+    font-size: 15px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--accent-2);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .kicker::before {
+    content: "";
+    width: 28px;
+    height: 2px;
+    background: var(--accent-2);
+  }
+
+  h1 {
+    font-family: var(--font-title);
+    font-size: 76px;
+    line-height: 1.02;
+    font-weight: 700;
+    letter-spacing: -1.5px;
+  }
+
+  h2 {
+    font-family: var(--font-title);
+    font-size: 46px;
+    font-weight: 700;
+    letter-spacing: -0.8px;
+    margin-bottom: 30px;
+  }
+
+  h3 {
+    font-family: var(--font-title);
+    font-size: 23px;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+
+  p, li {
+    font-size: 19px;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+
+  strong { color: var(--text); font-weight: 600; }
+
+  .grad {
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* ---------- Components ---------- */
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 16px;
+    padding: 24px 26px;
+    backdrop-filter: blur(6px);
+  }
+
+  .icon {
+    width: 46px;
+    height: 46px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(62, 166, 255, 0.12);
+    border: 1px solid rgba(62, 166, 255, 0.3);
+    margin-bottom: 16px;
+    flex-shrink: 0;
+  }
+
+  .icon svg { width: 24px; height: 24px; stroke: var(--accent); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+
+  .big-number {
+    font-family: var(--font-title);
+    font-size: 58px;
+    font-weight: 700;
+    line-height: 1;
+    margin-bottom: 8px;
+  }
+
+  .formula {
+    font-family: var(--font-mono);
+    font-size: 26px;
+    color: var(--text);
+    background: rgba(62, 166, 255, 0.08);
+    border: 1px dashed rgba(62, 166, 255, 0.4);
+    border-radius: 12px;
+    padding: 16px 22px;
+    text-align: center;
+  }
+
+  ul.clean { list-style: none; }
+  ul.clean li { padding-left: 30px; position: relative; margin-bottom: 12px; }
+  ul.clean li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 11px;
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    background: var(--accent);
+    transform: rotate(45deg);
+  }
+
+  .pc-head { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+  .pc-dot {
+    width: 34px; height: 34px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 18px; flex-shrink: 0;
+  }
+  .dot-warn { background: rgba(255, 122, 89, 0.15); color: var(--warn); border: 1px solid rgba(255, 122, 89, 0.4); }
+  .dot-good { background: rgba(75, 227, 138, 0.15); color: var(--good); border: 1px solid rgba(75, 227, 138, 0.4); }
+
+  /* speaker badge (top right) */
+  .speaker {
+    position: absolute;
+    top: 30px;
+    right: 40px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--muted);
+    border: 1px solid var(--panel-border);
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(7, 13, 26, 0.6);
+  }
+  .speaker b { color: var(--accent-2); font-weight: 500; }
+
+  /* ---------- Animated waves (title slide) ---------- */
+  .wave-bg {
+    position: absolute;
+    right: -120px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 700px;
+    height: 700px;
+    pointer-events: none;
+  }
+  .wave-bg circle {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 1.5;
+    opacity: 0;
+    transform-origin: 350px 350px;
+    animation: ripple 4s ease-out infinite;
+  }
+  .wave-bg circle:nth-child(2) { animation-delay: 1s; }
+  .wave-bg circle:nth-child(3) { animation-delay: 2s; }
+  .wave-bg circle:nth-child(4) { animation-delay: 3s; }
+
+  @keyframes ripple {
+    0%   { transform: scale(0.1); opacity: 0.8; }
+    100% { transform: scale(1);   opacity: 0; }
+  }
+
+  /* ---------- Pulse-echo diagram animation ---------- */
+  .beam-down, .beam-up {
+    stroke-dasharray: 8 8;
+    animation: dash 0.8s linear infinite;
+  }
+  .beam-up { animation-direction: reverse; }
+  @keyframes dash { to { stroke-dashoffset: -16; } }
+
+  .defect-glow { animation: glow 1.6s ease-in-out infinite; }
+  @keyframes glow {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+  }
+
+  /* ---------- Outline slide ---------- */
+  .part-card { display: flex; gap: 24px; align-items: center; padding: 26px 30px; }
+  .part-num {
+    font-family: var(--font-title);
+    font-size: 64px;
+    font-weight: 700;
+    line-height: 1;
+    min-width: 70px;
+  }
+  .part-card h3 { font-size: 26px; margin-bottom: 4px; }
+  .part-card p { font-size: 18px; }
+  .chip {
+    display: inline-block;
+    margin-top: 10px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(38, 224, 196, 0.12);
+    color: var(--accent-2);
+    border: 1px solid rgba(38, 224, 196, 0.3);
+  }
+
+  /* ---------- Machine overview ---------- */
+  .legend-item { display: flex; gap: 14px; align-items: flex-start; padding: 11px 16px; }
+  .legend-num {
+    width: 30px; height: 30px; border-radius: 50%;
+    background: var(--accent-2); color: #04121a;
+    font-family: var(--font-title); font-weight: 700; font-size: 16px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px;
+  }
+  .legend-item p { font-size: 17px; line-height: 1.4; }
+
+  /* ---------- PPE & safety slide ---------- */
+  .ppe-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 18px; }
+  .ppe-item {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+    background: rgba(62, 166, 255, 0.06); border: 1px solid var(--panel-border); border-radius: 14px;
+    padding: 18px 10px; gap: 12px;
+  }
+  .ppe-item .icon { margin: 0; width: 58px; height: 58px; border-radius: 16px; background: rgba(38, 224, 196, 0.12); border-color: rgba(38, 224, 196, 0.35); }
+  .ppe-item .icon svg { width: 30px; height: 30px; stroke: var(--accent-2); }
+  .ppe-item span { font-size: 17px; font-weight: 600; color: var(--text); line-height: 1.25; }
+  .safety ul.clean li { font-size: 19px; margin-bottom: 14px; }
+  .safety ul.clean li::before { background: var(--warn); }
+  .info-band {
+    display: flex; gap: 14px; align-items: center; margin-top: 16px;
+    background: rgba(75, 227, 138, 0.08); border: 1px solid rgba(75, 227, 138, 0.35); border-radius: 12px; padding: 12px 16px;
+  }
+  .info-band p { font-size: 16px; }
+
+  /* ---------- Instruction manual steps ---------- */
+  .step { display: flex; flex-direction: column; padding: 30px 28px; }
+  .step-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; }
+  .step-num { font-family: var(--font-title); font-size: 72px; font-weight: 700; line-height: 1; }
+  .step .icon { width: 64px; height: 64px; border-radius: 18px; margin: 0; }
+  .step .icon svg { width: 32px; height: 32px; }
+  .step h3 { font-size: 27px; margin-bottom: 12px; }
+  .step p { font-size: 19px; }
+  .tip {
+    display: flex; gap: 12px; align-items: center;
+    background: rgba(75, 227, 138, 0.08); border: 1px solid rgba(75, 227, 138, 0.35);
+    border-radius: 12px; padding: 12px 18px;
+  }
+  .tip p { font-size: 17px; }
+
+  /* ---------- Troubleshooting ---------- */
+  .symptom {
+    display: flex; align-items: center; gap: 16px;
+    border-color: rgba(255, 122, 89, 0.5); background: rgba(255, 122, 89, 0.08);
+    padding: 16px 22px; margin-bottom: 18px;
+  }
+  .symptom p { font-size: 21px; color: var(--text); }
+  .ts-grid { display: grid; grid-template-columns: 1fr 50px 1fr; grid-template-rows: auto 1fr 1fr 1fr; row-gap: 12px; }
+  .ts-label { font-family: var(--font-mono); font-size: 13px; letter-spacing: 2px; }
+  .ts-cause { border-color: rgba(255, 122, 89, 0.3); padding: 14px 20px; display: flex; align-items: center; }
+  .ts-fix { border-color: rgba(75, 227, 138, 0.35); background: rgba(75, 227, 138, 0.06); padding: 14px 20px; display: flex; align-items: center; }
+  .ts-cause p, .ts-fix p { font-size: 19px; }
+  .ts-arrow { display: flex; align-items: center; justify-content: center; }
+  .ts-arrow svg { width: 28px; height: 28px; stroke: var(--accent-2); fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* ---------- Conclusion ---------- */
+  .tall .card { display: flex; flex-direction: column; padding: 60px 28px 30px; }
+  .tall .big-number { font-size: 90px; margin-bottom: 22px; }
+  .tall h3 { font-size: 27px; margin-bottom: 14px; }
+  .tall p { font-size: 20px; }
+
+  /* ---------- UI: progress, counter, notes ---------- */
+  #progress {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    height: 4px;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    transition: width 0.4s ease;
+    z-index: 10;
+  }
+
+  #footer {
+    position: absolute;
+    left: 80px;
+    right: 40px;
+    bottom: 22px;
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--muted);
+    z-index: 10;
+  }
+
+  #timer.over { color: var(--warn); }
+
+  #notes {
+    position: fixed;
+    left: 50%;
+    bottom: 20px;
+    transform: translateX(-50%) translateY(20px);
+    width: min(900px, 92vw);
+    max-height: 38vh;
+    overflow-y: auto;
+    background: rgba(5, 10, 20, 0.95);
+    border: 1px solid var(--panel-border);
+    border-radius: 14px;
+    padding: 18px 22px;
+    font-size: 16px;
+    line-height: 1.55;
+    color: var(--text);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s, transform 0.3s;
+    z-index: 100;
+  }
+  #notes.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+  #notes .n-title { font-family: var(--font-mono); font-size: 12px; color: var(--accent-2); letter-spacing: 2px; margin-bottom: 8px; }
+
+  #help {
+    position: fixed;
+    top: 14px;
+    left: 14px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: #4f6282;
+    z-index: 100;
+    transition: opacity 0.5s;
+  }
+
+  .speaker-notes { display: none; }
+</style>
+</head>
+<body>
+
+<div id="help">← → navigate · N notes · F fullscreen · T reset timer</div>
+
+<div id="viewport">
+  <div id="stage">
+
+    <!-- =============== SLIDE 1 — TITLE =============== -->
+    <section class="slide" data-speaker="A">
+      <svg class="wave-bg" viewBox="0 0 700 700">
+        <circle cx="350" cy="350" r="340"/>
+        <circle cx="350" cy="350" r="340"/>
+        <circle cx="350" cy="350" r="340"/>
+        <circle cx="350" cy="350" r="340"/>
+      </svg>
+
+      <div style="margin-top: auto; margin-bottom: auto; max-width: 780px; position: relative;">
+        <div class="kicker reveal" style="--i:0">Ultrasonic Testing (UT)</div>
+        <h1 class="reveal" style="--i:1">The Ultrasonic<br><span class="grad">Flaw Detector</span></h1>
+        <p class="reveal" style="--i:2; font-size: 24px; margin-top: 22px;">Seeing inside materials with sound</p>
+
+        <div class="reveal" style="--i:3; display: flex; gap: 16px; margin-top: 46px;">
+          <div class="card" style="padding: 14px 22px;">
+            <p style="font-size: 13px; font-family: var(--font-mono); letter-spacing: 1px;">PRESENTED BY</p>
+            <p style="color: var(--text); font-size: 19px; font-weight: 600;">Yannis  &amp; Victor</p>
+          </div>
+          <div class="card" style="padding: 14px 22px;">
+            <p style="font-size: 13px; font-family: var(--font-mono); letter-spacing: 1px;">CLASS</p>
+            <p style="color: var(--text); font-size: 19px; font-weight: 600;">English presentation</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="speaker-notes">
+        Hello everyone. Today, [Name 2] and I are going to present a technical machine: the ultrasonic flaw detector. It is a machine that uses sound to see inside materials and find hidden defects.
+      </div>
+    </section>
+
+    <!-- =============== SLIDE 2 — OUTLINE =============== -->
+    <section class="slide" data-speaker="A">
+      <div class="kicker reveal" style="--i:0">Outline</div>
+      <h2 class="reveal" style="--i:1">Our <span class="grad">presentation</span></h2>
+
+      <div class="grid-2" style="flex: 1; grid-template-rows: 1fr 1fr;">
+        <div class="card part-card reveal" style="--i:2;">
+          <div class="part-num grad">01</div>
+          <div>
+            <h3>Presenting the object</h3>
+            <p>What is it used for? Overview of the machine</p>
+            <span class="chip">SPEAKER A</span>
+          </div>
+        </div>
+        <div class="card part-card reveal" style="--i:3;">
+          <div class="part-num grad">02</div>
+          <div>
+            <h3>Safety precautions</h3>
+            <p>The PPE we need and the rules to follow</p>
+            <span class="chip">SPEAKER A</span>
+          </div>
+        </div>
+        <div class="card part-card reveal" style="--i:4;">
+          <div class="part-num grad">03</div>
+          <div>
+            <h3>Instruction manual</h3>
+            <p>How to use the machine, step by step</p>
+            <span class="chip">SPEAKER B</span>
+          </div>
+        </div>
+        <div class="card part-card reveal" style="--i:5;">
+          <div class="part-num grad">04</div>
+          <div>
+            <h3>Troubleshooting</h3>
+            <p>Two common problems and how to solve them</p>
+            <span class="chip">SPEAKER B</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="speaker-notes">
+        Our presentation has four parts. First, I will present the machine: what it is used for and an overview of its parts. Second, I will talk about safety: the PPE we need and the safety precautions. Then, [Name 2] will explain how to use the machine, step by step. And finally, [Name 2] will present two common problems and how to solve them.
+      </div>
+    </section>
+
+    <!-- =============== SLIDE 3 — PART 1: WHAT IS IT USED FOR =============== -->
+    <section class="slide" data-speaker="A">
+      <div class="kicker reveal" style="--i:0">Part 1 · Presenting the object</div>
+      <h2 class="reveal" style="--i:1">What is it <span class="grad">used for</span>?</h2>
+
+      <div style="display: grid; grid-template-columns: 1fr 1.15fr; gap: 24px; flex: 1;">
+        <div class="card reveal" style="--i:2; display: flex; flex-direction: column; justify-content: center;">
+          <p style="font-size: 26px; line-height: 1.4; color: var(--text);">
+            An <strong class="grad">ultrasonic flaw detector</strong> is a portable machine that sends <strong>high-frequency sound</strong> into a material to find <strong>hidden defects</strong>.
+          </p>
+          <div class="tip" style="margin-top: 26px;">
+            <div class="pc-dot dot-good">✓</div>
+            <p>It is a <strong>Non-Destructive Testing</strong> (NDT) method: the part is <strong>not damaged</strong> and can still be used after the test.</p>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 14px;">
+          <div class="card reveal" style="--i:3; display: flex; gap: 18px; align-items: center; padding: 18px 22px;">
+            <div class="icon" style="margin: 0;"><svg viewBox="0 0 24 24"><path d="M4 4 L10 10 L8 14 L14 20"/><path d="M14 4 L20 10"/></svg></div>
+            <div><h3 style="margin-bottom: 2px;">Find cracks</h3><p style="font-size: 17px;">Detect cracks and holes inside metal parts.</p></div>
+          </div>
+          <div class="card reveal" style="--i:4; display: flex; gap: 18px; align-items: center; padding: 18px 22px;">
+            <div class="icon" style="margin: 0;"><svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="10" rx="1"/><path d="M8 4 L8 20" stroke-dasharray="2 2"/></svg></div>
+            <div><h3 style="margin-bottom: 2px;">Measure thickness</h3><p style="font-size: 17px;">Check if a pipe or a tank is damaged by corrosion.</p></div>
+          </div>
+          <div class="card reveal" style="--i:5; display: flex; gap: 18px; align-items: center; padding: 18px 22px;">
+            <div class="icon" style="margin: 0;"><svg viewBox="0 0 24 24"><path d="M3 18 L10 18 L12 14 L14 18 L21 18"/><path d="M12 14 L12 6"/><circle cx="12" cy="5" r="1.5"/></svg></div>
+            <div><h3 style="margin-bottom: 2px;">Check welds</h3><p style="font-size: 17px;">Make sure welded joints are strong and safe.</p></div>
+          </div>
+          <div class="card reveal" style="--i:6; padding: 16px 22px;">
+            <p style="font-size: 16px;"><strong>Used in:</strong> aerospace · oil &amp; gas · railways · power plants · manufacturing</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="speaker-notes">
+        So, what is an ultrasonic flaw detector? It is a portable machine that sends high-frequency sound, called ultrasound, into a material to find hidden defects. It is a non-destructive testing method: we don't damage the part, so it can still be used after the test. We use it for three main things: to find cracks inside metal parts, to measure the thickness of pipes and tanks to check for corrosion, and to check that welds are strong and safe. It is used in many industries, like aerospace, oil and gas, railways and power plants.
+      </div>
+    </section>
+
+    <!-- =============== SLIDE 4 — PART 1: OVERVIEW OF THE MACHINE =============== -->
+    <section class="slide" data-speaker="A">
+      <div class="kicker reveal" style="--i:0">Part 1 · Presenting the object</div>
+      <h2 class="reveal" style="--i:1">Overview of <span class="grad">the machine</span></h2>
+
+      <div style="display: grid; grid-template-columns: 1.25fr 1fr; gap: 24px; flex: 1;">
+        <div class="card reveal" style="--i:2; padding: 14px; display: flex; align-items: center; justify-content: center;">
+          <svg viewBox="0 0 560 400" width="100%" height="100%">
+            <defs>
+              <linearGradient id="steelA" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#40526f"/>
+                <stop offset="1" stop-color="#26334a"/>
+              </linearGradient>
+            </defs>
+            <!-- handle -->
+            <path d="M90 42 V28 a8 8 0 0 1 8 -8 H242 a8 8 0 0 1 8 8 V42" stroke="var(--steel-light)" stroke-width="6" fill="none"/>
+            <!-- body -->
+            <rect x="40" y="40" width="260" height="195" rx="18" fill="#16243b" stroke="var(--accent)" stroke-width="2"/>
+            <!-- screen -->
+            <rect x="60" y="60" width="160" height="112" rx="6" fill="#06101d" stroke="var(--accent-2)" stroke-width="1.5"/>
+            <polyline points="66,160 70,78 74,155 80,158 120,158 150,158 156,100 160,158 214,158" fill="none" stroke="var(--accent-2)" stroke-width="2"/>
+            <!-- keypad -->
+            <g fill="#2a3d5c">
+              <rect x="60" y="186" width="44" height="16" rx="4"/><rect x="118" y="186" width="44" height="16" rx="4"/><rect x="176" y="186" width="44" height="16" rx="4"/>
+              <rect x="60" y="208" width="44" height="16" rx="4"/><rect x="118" y="208" width="44" height="16" rx="4"/><rect x="176" y="208" width="44" height="16" rx="4"/>
+            </g>
+            <!-- knobs -->
+            <circle cx="262" cy="96" r="17" fill="#2a3d5c" stroke="var(--accent)" stroke-width="2"/>
+            <line x1="262" y1="96" x2="262" y2="82" stroke="var(--accent)" stroke-width="2"/>
+            <circle cx="262" cy="150" r="11" fill="#2a3d5c" stroke="var(--accent)" stroke-width="2"/>
+            <circle cx="262" cy="200" r="6" fill="var(--good)"/>
+            <!-- cable -->
+            <path d="M300 150 C 370 150, 405 190, 405 256" stroke="var(--muted)" stroke-width="4" fill="none"/>
+            <!-- probe -->
+            <rect x="388" y="256" width="34" height="42" rx="5" fill="#1d3558" stroke="var(--accent)" stroke-width="2"/>
+            <rect x="388" y="292" width="34" height="8" fill="var(--accent)"/>
+            <!-- couplant -->
+            <rect x="378" y="300" width="54" height="6" rx="3" fill="var(--accent-2)" opacity="0.75"/>
+            <!-- part to inspect -->
+            <rect x="320" y="306" width="210" height="58" fill="url(#steelA)" stroke="var(--steel-light)" stroke-width="1.5"/>
+            <text x="425" y="386" text-anchor="middle" fill="var(--muted)" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="13">part to inspect</text>
+            <!-- calibration block -->
+            <polygon points="40,364 40,330 90,330 90,310 140,310 140,290 190,290 190,364" fill="url(#steelA)" stroke="var(--steel-light)" stroke-width="1.5"/>
+            <!-- numbered badges -->
+            <g font-family="Space Grotesk, Segoe UI, Arial, sans-serif" font-size="15" font-weight="700" text-anchor="middle">
+              <circle cx="220" cy="60" r="14" fill="var(--accent-2)"/><text x="220" y="65" fill="#04121a">1</text>
+              <circle cx="285" cy="68" r="14" fill="var(--accent-2)"/><text x="285" y="73" fill="#04121a">2</text>
+              <circle cx="444" cy="262" r="14" fill="var(--accent-2)"/><text x="444" y="267" fill="#04121a">3</text>
+              <circle cx="362" cy="166" r="14" fill="var(--accent-2)"/><text x="362" y="171" fill="#04121a">4</text>
+              <circle cx="360" cy="292" r="14" fill="var(--accent-2)"/><text x="360" y="297" fill="#04121a">5</text>
+              <circle cx="60" cy="302" r="14" fill="var(--accent-2)"/><text x="60" y="307" fill="#04121a">6</text>
+            </g>
+          </svg>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 9px; justify-content: center;">
+          <div class="card legend-item reveal" style="--i:3;"><div class="legend-num">1</div><p><strong>Screen</strong>: shows the echoes (A-scan)</p></div>
+          <div class="card legend-item reveal" style="--i:4;"><div class="legend-num">2</div><p><strong>Controls</strong>: adjust the gain and the range</p></div>
+          <div class="card legend-item reveal" style="--i:5;"><div class="legend-num">3</div><p><strong>Probe</strong> (transducer): sends and receives the sound</p></div>
+          <div class="card legend-item reveal" style="--i:6;"><div class="legend-num">4</div><p><strong>Cable</strong>: connects the probe to the machine</p></div>
+          <div class="card legend-item reveal" style="--i:7;"><div class="legend-num">5</div><p><strong>Couplant</strong>: gel that lets the sound enter the part</p></div>
+          <div class="card legend-item reveal" style="--i:8;"><div class="legend-num">6</div><p><strong>Calibration block</strong>: reference piece to set up the machine</p></div>
+        </div>
+      </div>
+
+      <div class="speaker-notes">
+        Here is an overview of the machine. Number one is the screen: it shows the echoes as a graph called an A-scan. Number two is the controls: we use them to adjust the gain, which is the power of the signal, and the range, which is the depth we look at. Number three is the probe, also called the transducer: it sends and receives the sound. Number four is the cable, which connects the probe to the machine. Number five is the couplant: a gel that lets the sound go into the part. And number six is the calibration block: a reference piece with known dimensions that we use to set up the machine.
+      </div>
+    </section>
+
+    <!-- =============== SLIDE 5 — PART 1: HOW IT WORKS =============== -->
+    <section class="slide" data-speaker="A">
+      <div class="kicker reveal" style="--i:0">Part 1 · Presenting the object</div>
+      <h2 class="reveal" style="--i:1">How does it <span class="grad">work</span>?</h2>
+
+      <div style="display: grid; grid-template-columns: 1.15fr 1fr; gap: 36px; flex: 1;">
+        <div class="card reveal" style="--i:2; padding: 16px; display: flex; align-items: center; justify-content: center;">
+          <svg viewBox="0 0 520 380" width="100%" height="100%">
+            <defs>
+              <linearGradient id="steelB" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#40526f"/>
+                <stop offset="1" stop-color="#26334a"/>
+              </linearGradient>
+            </defs>
+            <!-- probe -->
+            <rect x="200" y="20" width="90" height="70" rx="8" fill="#1d3558" stroke="var(--accent)" stroke-width="2"/>
+            <rect x="215" y="78" width="60" height="10" fill="var(--accent)"/>
+            <text x="245" y="58" text-anchor="middle" fill="var(--text)" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="14" font-weight="600">PROBE</text>
+            <line x1="245" y1="20" x2="245" y2="2" stroke="var(--muted)" stroke-width="2"/>
+            <!-- couplant -->
+            <rect x="195" y="90" width="100" height="10" rx="3" fill="var(--accent-2)" opacity="0.6"/>
+            <text x="305" y="99" fill="var(--accent-2)" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="13">couplant (gel)</text>
+            <!-- steel block -->
+            <rect x="40" y="100" width="440" height="220" fill="url(#steelB)" stroke="var(--steel-light)" stroke-width="2"/>
+            <text x="56" y="126" fill="var(--muted)" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="13">STEEL PART</text>
+            <!-- defect -->
+            <ellipse class="defect-glow" cx="220" cy="210" rx="30" ry="7" fill="var(--warn)"/>
+            <text x="120" y="215" fill="var(--warn)" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="14" font-weight="600">crack</text>
+            <!-- beams -->
+            <line class="beam-down" x1="232" y1="102" x2="232" y2="203" stroke="var(--accent)" stroke-width="3"/>
+            <line class="beam-up" x1="258" y1="102" x2="258" y2="203" stroke="var(--accent-2)" stroke-width="3"/>
+            <polygon points="226,195 238,195 232,205" fill="var(--accent)"/>
+            <polygon points="252,110 264,110 258,100" fill="var(--accent-2)"/>
+            <!-- back wall -->
+            <line x1="40" y1="320" x2="480" y2="320" stroke="var(--muted)" stroke-width="3"/>
+            <text x="480" y="345" text-anchor="end" fill="var(--muted)" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="13">back wall</text>
+            <!-- depth -->
+            <line x1="420" y1="100" x2="420" y2="210" stroke="var(--text)" stroke-width="1.5" stroke-dasharray="4 4"/>
+            <line x1="410" y1="210" x2="430" y2="210" stroke="var(--text)" stroke-width="1.5"/>
+            <text x="432" y="160" fill="var(--text)" font-family="JetBrains Mono, Consolas, monospace" font-size="16">d</text>
+            <!-- legend -->
+            <line x1="60" y1="365" x2="90" y2="365" stroke="var(--accent)" stroke-width="3"/>
+            <text x="98" y="370" fill="var(--muted)" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="13">emitted wave</text>
+            <line x1="230" y1="365" x2="260" y2="365" stroke="var(--accent-2)" stroke-width="3"/>
+            <text x="268" y="370" fill="var(--muted)" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="13">echo</text>
+          </svg>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 14px; justify-content: center;">
+          <div class="card reveal" style="--i:3; padding: 16px 20px;">
+            <h3><span class="grad">1.</span> Send</h3>
+            <p style="font-size: 17px;">The probe sends an <strong>ultrasound pulse</strong> (0.5 – 15 MHz) into the part.</p>
+          </div>
+          <div class="card reveal" style="--i:4; padding: 16px 20px;">
+            <h3><span class="grad">2.</span> Echo</h3>
+            <p style="font-size: 17px;">The sound <strong>bounces back</strong> on a crack or on the back wall.</p>
+          </div>
+          <div class="card reveal" style="--i:5; padding: 16px 20px;">
+            <h3><span class="grad">3.</span> Measure</h3>
+            <p style="font-size: 17px;">The machine measures the <strong>time of flight</strong> and calculates the depth:</p>
+          </div>
+          <div class="formula reveal" style="--i:6;">d = (v × t) / 2</div>
+        </div>
+      </div>
+
+      <div class="speaker-notes">
+        How does it work? It uses the pulse-echo principle, like a bat. Step one: the probe sends an ultrasound pulse into the part. This sound is too high for humans to hear. Step two: when the sound hits a crack or the back wall of the part, it bounces back. It's an echo. Step three: the machine measures the time of flight, so the time for the sound to go down and come back. With the speed of sound in the material, it calculates the depth: d equals v times t, divided by two. We divide by two because the sound goes down and comes back.
+      </div>
+    </section>
+
+    <!-- =============== SLIDE 6 — PART 2: PPE & SAFETY =============== -->
+    <section class="slide" data-speaker="A">
+      <div class="kicker reveal" style="--i:0">Part 2 · Safety precautions</div>
+      <h2 class="reveal" style="--i:1">PPE &amp; <span class="grad">safety precautions</span></h2>
+
+      <div style="display: grid; grid-template-columns: 1.1fr 1fr; gap: 26px; flex: 1;">
+        <div class="card reveal" style="--i:2; display: flex; flex-direction: column;">
+          <h3>Personal Protective Equipment</h3>
+          <p style="font-size: 16px;">What the inspector must wear on site</p>
+          <div class="ppe-grid" style="flex: 1;">
+            <div class="ppe-item">
+              <div class="icon"><svg viewBox="0 0 24 24"><path d="M4 16a8 8 0 0 1 16 0"/><line x1="2" y1="16" x2="22" y2="16"/><path d="M10 8.3V6h4v2.3"/><path d="M4 16v2h16v-2"/></svg></div>
+              <span>Safety helmet</span>
+            </div>
+            <div class="ppe-item">
+              <div class="icon"><svg viewBox="0 0 24 24"><circle cx="7" cy="13" r="3.5"/><circle cx="17" cy="13" r="3.5"/><path d="M10.5 13h3"/><path d="M3.5 13 L2 9 M20.5 13 L22 9"/></svg></div>
+              <span>Safety glasses</span>
+            </div>
+            <div class="ppe-item">
+              <div class="icon"><svg viewBox="0 0 24 24"><path d="M8 21v-6L5.5 11.5a1.6 1.6 0 0 1 2.6-1.9L9.5 11.5V4.5a1.5 1.5 0 0 1 3 0V11V3.5a1.5 1.5 0 0 1 3 0V11V5.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6z"/></svg></div>
+              <span>Nitrile gloves</span>
+            </div>
+            <div class="ppe-item">
+              <div class="icon"><svg viewBox="0 0 24 24"><path d="M6 3h6v9l6 2.5a3 3 0 0 1 3 3V20H6z"/><line x1="6" y1="17" x2="21" y2="17"/></svg></div>
+              <span>Safety boots</span>
+            </div>
+            <div class="ppe-item">
+              <div class="icon"><svg viewBox="0 0 24 24"><path d="M8 3 L5 6v15h14V6l-3-3-4 6z"/><line x1="5" y1="13" x2="19" y2="13"/><line x1="5" y1="17" x2="19" y2="17"/></svg></div>
+              <span>High-visibility vest</span>
+            </div>
+            <div class="ppe-item">
+              <div class="icon"><svg viewBox="0 0 24 24"><path d="M5 14a7 7 0 0 1 14 0"/><rect x="3" y="13" width="4" height="7" rx="2"/><rect x="17" y="13" width="4" height="7" rx="2"/></svg></div>
+              <span>Ear protection</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card safety reveal" style="--i:3; display: flex; flex-direction: column; justify-content: center;">
+          <div class="pc-head"><div class="pc-dot dot-warn">!</div><h3 style="margin: 0;">Safety precautions</h3></div>
+          <ul class="clean">
+            <li>Get a <strong>work permit</strong> and follow site rules</li>
+            <li>Check the <strong>surface temperature</strong>: pipes can be very hot</li>
+            <li>Clean <strong>couplant spills</strong>: floors become slippery</li>
+            <li>Wear a <strong>harness</strong> when working at height</li>
+            <li>Never use the machine with a <strong>damaged cable</strong> or battery</li>
+          </ul>
+          <div class="info-band">
+            <div class="pc-dot dot-good">✓</div>
+            <p><strong>Good news:</strong> ultrasound produces <strong>no ionising radiation</strong>, unlike X-rays.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="speaker-notes">
+        Now, the second part: safety. First, the PPE, which means Personal Protective Equipment. The inspector must wear a safety helmet, safety glasses, nitrile gloves to protect the skin from the couplant, safety boots, a high-visibility vest, and ear protection because industrial sites are very noisy. Then, the safety precautions: we need a work permit and we follow the site rules. We check the surface temperature, because pipes can be very hot. We clean couplant spills, because the floor becomes slippery. We wear a harness when we work at height. And we never use the machine if the cable or the battery is damaged. The good news is that ultrasound produces no ionising radiation, so it's much safer than X-rays. Now, [Name 2] will explain how to use the machine.
+      </div>
+    </section>
+
+    <!-- =============== SLIDE 7 — PART 3: BEFORE THE TEST =============== -->
+    <section class="slide" data-speaker="B">
+      <div class="kicker reveal" style="--i:0">Part 3 · Instruction manual</div>
+      <h2 class="reveal" style="--i:1">How to use it: <span class="grad">before the test</span></h2>
+
+      <div class="grid-3" style="flex: 1;">
+        <div class="card step reveal" style="--i:2;">
+          <div class="step-top">
+            <div class="step-num grad">01</div>
+            <div class="icon"><svg viewBox="0 0 24 24"><path d="M4 20 L14 10"/><path d="M13 5 L19 11 L16 14 L10 8 Z"/><path d="M4 14 h3 M6 17 h3"/></svg></div>
+          </div>
+          <h3>Prepare the surface</h3>
+          <p>Remove <strong>paint, rust and dirt</strong>. The surface must be clean and smooth.</p>
+        </div>
+        <div class="card step reveal" style="--i:3;">
+          <div class="step-top">
+            <div class="step-num grad">02</div>
+            <div class="icon"><svg viewBox="0 0 24 24"><path d="M12 3 v8"/><path d="M6.5 7.5 a7 7 0 1 0 11 0"/></svg></div>
+          </div>
+          <h3>Connect &amp; switch on</h3>
+          <p>Connect the <strong>probe cable</strong> to the machine, switch it on and check the <strong>battery</strong>.</p>
+        </div>
+        <div class="card step reveal" style="--i:4;">
+          <div class="step-top">
+            <div class="step-num grad">03</div>
+            <div class="icon"><svg viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="10" rx="1"/><line x1="7" y1="8" x2="7" y2="11"/><line x1="11" y1="8" x2="11" y2="12"/><line x1="15" y1="8" x2="15" y2="11"/><line x1="19" y1="8" x2="19" y2="12"/></svg></div>
+          </div>
+          <h3>Calibrate</h3>
+          <p>Use the <strong>calibration block</strong> to set the sound velocity of the material (steel ≈ <strong>5,920 m/s</strong>).</p>
+        </div>
+      </div>
+
+      <div class="speaker-notes">
+        Thank you [Name 1]. Now, the third part: the instruction manual. How do we use the machine? Before the test, there are three steps. Step one: we prepare the surface. We remove paint, rust and dirt, because the surface must be clean and smooth. Step two: we connect the probe cable to the machine, we switch it on and we check the battery. Step three: we calibrate the machine with the calibration block. We set the speed of sound of the material. For example, in steel, it's about five thousand nine hundred and twenty metres per second.
+      </div>
+    </section>
+
+    <!-- =============== SLIDE 8 — PART 3: DURING THE TEST =============== -->
+    <section class="slide" data-speaker="B">
+      <div class="kicker reveal" style="--i:0">Part 3 · Instruction manual</div>
+      <h2 class="reveal" style="--i:1">How to use it: <span class="grad">during the test</span></h2>
+
+      <div class="grid-3" style="flex: 1;">
+        <div class="card step reveal" style="--i:2;">
+          <div class="step-top">
+            <div class="step-num grad">04</div>
+            <div class="icon"><svg viewBox="0 0 24 24"><path d="M12 3 C12 3 5 11 5 15 a7 7 0 0 0 14 0 C19 11 12 3 12 3z"/></svg></div>
+          </div>
+          <h3>Apply couplant</h3>
+          <p>Put a <strong>thin layer of gel</strong> on the surface to remove the air under the probe.</p>
+        </div>
+        <div class="card step reveal" style="--i:3;">
+          <div class="step-top">
+            <div class="step-num grad">05</div>
+            <div class="icon"><svg viewBox="0 0 24 24"><path d="M4 6 H20 V10 H4 V14 H20 V18 H4"/></svg></div>
+          </div>
+          <h3>Scan the part</h3>
+          <p>Press the probe <strong>gently</strong> and move it <strong>slowly</strong>, line by line, over the whole area.</p>
+        </div>
+        <div class="card step reveal" style="--i:4;">
+          <div class="step-top">
+            <div class="step-num grad">06</div>
+            <div class="icon"><svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="12" y2="16"/></svg></div>
+          </div>
+          <h3>Read &amp; record</h3>
+          <p>Watch the <strong>echoes on the screen</strong> and write down the position and depth of each defect.</p>
+        </div>
+      </div>
+
+      <div class="speaker-notes">
+        During the test, there are three more steps. Step four: we apply the couplant. We put a thin layer of gel on the surface, to remove the air under the probe. Step five: we scan the part. We press the probe gently and we move it slowly, line by line, over the whole area. Step six: we read and record the results. We watch the echoes on the screen and we write down the position and the depth of each defect.
+      </div>
+    </section>
+
+    <!-- =============== SLIDE 9 — PART 3: READING THE SCREEN =============== -->
+    <section class="slide" data-speaker="B">
+      <div class="kicker reveal" style="--i:0">Part 3 · Instruction manual</div>
+      <h2 class="reveal" style="--i:1">Reading the <span class="grad">screen</span></h2>
+
+      <div style="display: grid; grid-template-columns: 1.3fr 1fr; gap: 30px; flex: 1;">
+        <div class="card reveal" style="--i:2; padding: 18px 20px; display: flex; flex-direction: column;">
+          <p style="font-family: var(--font-mono); font-size: 13px; letter-spacing: 2px; margin-bottom: 6px;">A-SCAN · EXAMPLE ON A STEEL PIPE</p>
+          <svg viewBox="0 0 560 320" width="100%" style="flex: 1;">
+            <g stroke="rgba(62,166,255,0.12)" stroke-width="1">
+              <line x1="40" y1="40" x2="540" y2="40"/><line x1="40" y1="100" x2="540" y2="100"/>
+              <line x1="40" y1="160" x2="540" y2="160"/><line x1="40" y1="220" x2="540" y2="220"/>
+              <line x1="140" y1="20" x2="140" y2="270"/><line x1="240" y1="20" x2="240" y2="270"/>
+              <line x1="340" y1="20" x2="340" y2="270"/><line x1="440" y1="20" x2="440" y2="270"/>
+            </g>
+            <line x1="40" y1="270" x2="540" y2="270" stroke="var(--muted)" stroke-width="2"/>
+            <line x1="40" y1="20" x2="40" y2="270" stroke="var(--muted)" stroke-width="2"/>
+            <text x="540" y="295" text-anchor="end" fill="var(--muted)" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="13">depth (mm)</text>
+            <text x="0" y="0" text-anchor="middle" fill="var(--muted)" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="13" transform="translate(24 145) rotate(-90)">amplitude</text>
+            <g fill="var(--muted)" font-family="JetBrains Mono, Consolas, monospace" font-size="12" text-anchor="middle">
+              <text x="40" y="288">0</text><text x="140" y="288">2.5</text><text x="240" y="288">5</text>
+              <text x="340" y="288">7.5</text><text x="440" y="288">10</text>
+            </g>
+            <line x1="440" y1="40" x2="440" y2="270" stroke="var(--muted)" stroke-width="2" stroke-dasharray="6 6"/>
+            <text x="446" y="34" fill="var(--muted)" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="13">expected: 10 mm</text>
+            <polyline fill="none" stroke="var(--accent-2)" stroke-width="2.5" stroke-linejoin="round"
+              points="40,270 44,60 48,240 52,90 56,265 62,262 80,268 120,266 160,268 200,266 240,268 270,266 280,268 284,120 288,250 292,150 296,266 310,268 360,266 400,268 440,267 480,268 540,268"/>
+            <circle cx="288" cy="120" r="7" fill="none" stroke="var(--warn)" stroke-width="2"/>
+            <text x="302" y="100" fill="var(--warn)" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="14" font-weight="600">back-wall echo: 6.2 mm</text>
+            <text x="60" y="44" fill="var(--accent)" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="13">initial pulse</text>
+          </svg>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 16px; justify-content: center;">
+          <div class="card reveal" style="--i:3; padding: 18px 22px;">
+            <p style="font-size: 15px; font-family: var(--font-mono);">NOMINAL THICKNESS</p>
+            <div class="big-number" style="font-size: 44px;">10.0 mm</div>
+          </div>
+          <div class="card reveal" style="--i:4; padding: 18px 22px;">
+            <p style="font-size: 15px; font-family: var(--font-mono);">MEASURED THICKNESS</p>
+            <div class="big-number" style="font-size: 44px; color: var(--warn);">6.2 mm</div>
+          </div>
+          <div class="card reveal" style="--i:5; padding: 18px 22px; border-color: rgba(255,122,89,0.5); background: rgba(255,122,89,0.08);">
+            <p style="font-size: 18px;"><strong style="color: var(--warn);">38 % wall loss</strong> due to internal corrosion → the pipe must be <strong>repaired or replaced</strong>.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="speaker-notes">
+        Here is an example of what we see on the screen. This graph is called an A-scan. On the left, we see the initial pulse. We are testing a steel pipe that should be 10 millimetres thick, so we expect the back-wall echo here, at 10. But the echo arrives earlier, at 6.2 millimetres. That means the pipe lost 38 percent of its thickness because of corrosion on the inside. We can't see it from the outside, but the machine shows it immediately. So the pipe must be repaired or replaced.
+      </div>
+    </section>
+
+    <!-- =============== SLIDE 10 — PART 4: PROBLEM 1 =============== -->
+    <section class="slide" data-speaker="B">
+      <div class="kicker reveal" style="--i:0">Part 4 · Troubleshooting</div>
+      <h2 class="reveal" style="--i:1">Problem 1: <span class="grad">no echo on the screen</span></h2>
+
+      <div class="card symptom reveal" style="--i:2;">
+        <div class="pc-dot dot-warn">!</div>
+        <p>The screen shows <strong>no echo</strong> or a <strong>very weak signal</strong>, even on a good part.</p>
+      </div>
+
+      <div class="ts-grid" style="flex: 1;">
+        <p class="ts-label reveal" style="--i:3; color: var(--warn);">POSSIBLE CAUSE</p><div></div>
+        <p class="ts-label reveal" style="--i:3; color: var(--good);">SOLUTION</p>
+
+        <div class="card ts-cause reveal" style="--i:4;"><p>Not enough <strong>couplant</strong>: there is air under the probe</p></div>
+        <div class="ts-arrow reveal" style="--i:4;"><svg viewBox="0 0 24 24"><path d="M4 12 H20 M14 6 L20 12 L14 18"/></svg></div>
+        <div class="card ts-fix reveal" style="--i:4;"><p>Add couplant and <strong>press the probe</strong> firmly</p></div>
+
+        <div class="card ts-cause reveal" style="--i:5;"><p>The <strong>cable</strong> is loose or damaged</p></div>
+        <div class="ts-arrow reveal" style="--i:5;"><svg viewBox="0 0 24 24"><path d="M4 12 H20 M14 6 L20 12 L14 18"/></svg></div>
+        <div class="card ts-fix reveal" style="--i:5;"><p>Check the connectors and <strong>replace the cable</strong></p></div>
+
+        <div class="card ts-cause reveal" style="--i:6;"><p>The surface is <strong>rough or dirty</strong></p></div>
+        <div class="ts-arrow reveal" style="--i:6;"><svg viewBox="0 0 24 24"><path d="M4 12 H20 M14 6 L20 12 L14 18"/></svg></div>
+        <div class="card ts-fix reveal" style="--i:6;"><p><strong>Clean or grind</strong> the surface, then test again</p></div>
+      </div>
+
+      <div class="speaker-notes">
+        Now, the last part: troubleshooting. Here are two problems that can happen with the machine. Problem number one: there is no echo on the screen, or the signal is very weak, even on a good part. There are three possible causes. First, there is not enough couplant, so there is air under the probe. The solution is to add couplant and press the probe firmly. Second, the cable is loose or damaged. The solution is to check the connectors and replace the cable. Third, the surface is rough or dirty. The solution is to clean or grind the surface, and then test again.
+      </div>
+    </section>
+
+    <!-- =============== SLIDE 11 — PART 4: PROBLEM 2 =============== -->
+    <section class="slide" data-speaker="B">
+      <div class="kicker reveal" style="--i:0">Part 4 · Troubleshooting</div>
+      <h2 class="reveal" style="--i:1">Problem 2: <span class="grad">wrong measurements</span></h2>
+
+      <div class="card symptom reveal" style="--i:2;">
+        <div class="pc-dot dot-warn">!</div>
+        <p>The machine gives a <strong>wrong thickness</strong>: for example 12 mm on a 10 mm part.</p>
+      </div>
+
+      <div class="ts-grid" style="flex: 1;">
+        <p class="ts-label reveal" style="--i:3; color: var(--warn);">POSSIBLE CAUSE</p><div></div>
+        <p class="ts-label reveal" style="--i:3; color: var(--good);">SOLUTION</p>
+
+        <div class="card ts-cause reveal" style="--i:4;"><p>The machine is <strong>not calibrated</strong> correctly</p></div>
+        <div class="ts-arrow reveal" style="--i:4;"><svg viewBox="0 0 24 24"><path d="M4 12 H20 M14 6 L20 12 L14 18"/></svg></div>
+        <div class="card ts-fix reveal" style="--i:4;"><p><strong>Recalibrate</strong> with the calibration block</p></div>
+
+        <div class="card ts-cause reveal" style="--i:5;"><p>Wrong <strong>sound velocity</strong> for the material</p></div>
+        <div class="ts-arrow reveal" style="--i:5;"><svg viewBox="0 0 24 24"><path d="M4 12 H20 M14 6 L20 12 L14 18"/></svg></div>
+        <div class="card ts-fix reveal" style="--i:5;"><p>Enter the <strong>correct velocity</strong> (steel ≈ 5,920 m/s)</p></div>
+
+        <div class="card ts-cause reveal" style="--i:6;"><p>The <strong>probe is worn</strong> after a lot of use</p></div>
+        <div class="ts-arrow reveal" style="--i:6;"><svg viewBox="0 0 24 24"><path d="M4 12 H20 M14 6 L20 12 L14 18"/></svg></div>
+        <div class="card ts-fix reveal" style="--i:6;"><p><strong>Replace the probe</strong> and calibrate again</p></div>
+      </div>
+
+      <div class="speaker-notes">
+        Problem number two: the machine gives a wrong measurement. For example, it shows 12 millimetres on a part that is 10 millimetres thick. Again, there are three possible causes. First, the machine is not calibrated correctly. The solution is to recalibrate it with the calibration block. Second, the sound velocity is wrong for the material. For example, we used the velocity of aluminium on a steel part. The solution is to enter the correct velocity: for steel, it's about five thousand nine hundred and twenty metres per second. Third, the probe is worn after a lot of use. The solution is to replace the probe and calibrate again.
+      </div>
+    </section>
+
+    <!-- =============== SLIDE 12 — CONCLUSION =============== -->
+    <section class="slide" data-speaker="B">
+      <div class="kicker reveal" style="--i:0">Conclusion</div>
+      <h2 class="reveal" style="--i:1">Key <span class="grad">takeaways</span></h2>
+
+      <div class="grid-3 tall" style="flex: 1; align-items: stretch;">
+        <div class="card reveal" style="--i:2;">
+          <div class="big-number grad">01</div>
+          <h3>A powerful tool</h3>
+          <p>It finds <strong>hidden defects</strong> without damaging the part.</p>
+        </div>
+        <div class="card reveal" style="--i:3;">
+          <div class="big-number grad">02</div>
+          <h3>Safety first</h3>
+          <p>Always wear your <strong>PPE</strong> and follow the site rules.</p>
+        </div>
+        <div class="card reveal" style="--i:4;">
+          <div class="big-number grad">03</div>
+          <h3>Reliable results</h3>
+          <p><strong>Calibrate</strong>, use couplant and scan slowly for correct results.</p>
+        </div>
+      </div>
+
+      <div class="speaker-notes">
+        To conclude, here are three key ideas. One: the ultrasonic flaw detector is a powerful tool that finds hidden defects without damaging the part. Two: safety first, always wear your PPE and follow the site rules. Three: to get reliable results, you must calibrate the machine, use couplant and scan slowly. This machine helps keep planes, pipelines and trains safe every day.
+      </div>
+    </section>
+
+    <!-- =============== SLIDE 13 — THANK YOU =============== -->
+    <section class="slide" data-speaker="A+B">
+      <svg class="wave-bg" viewBox="0 0 700 700" style="right: auto; left: 50%; transform: translate(-50%, -50%);">
+        <circle cx="350" cy="350" r="340"/>
+        <circle cx="350" cy="350" r="340"/>
+        <circle cx="350" cy="350" r="340"/>
+        <circle cx="350" cy="350" r="340"/>
+      </svg>
+      <div style="margin: auto; text-align: center; position: relative;">
+        <div class="kicker reveal" style="--i:0; justify-content: center;">End of presentation</div>
+        <h1 class="reveal" style="--i:1; font-size: 96px;">Thank <span class="grad">you!</span></h1>
+        <p class="reveal" style="--i:2; font-size: 28px; margin-top: 20px; color: var(--text);">Any questions?</p>
+      </div>
+
+      <div class="speaker-notes">
+        Thank you for your attention. Do you have any questions?
+      </div>
+    </section>
+
+    <!-- UI -->
+    <div class="speaker" id="speakerBadge">Speaker <b>A</b></div>
+    <div id="footer">
+      <span>The Ultrasonic Flaw Detector</span>
+      <span><span id="timer">00:00</span> &nbsp;·&nbsp; <span id="counter">1 / 13</span></span>
+    </div>
+    <div id="progress"></div>
+  </div>
+</div>
+
+<div id="notes"><div class="n-title" id="notesTitle">SPEAKER NOTES</div><div id="notesText"></div></div>
+
+<script>
+  const slides = Array.from(document.querySelectorAll(".slide"));
+  const stage = document.getElementById("stage");
+  const counter = document.getElementById("counter");
+  const progress = document.getElementById("progress");
+  const badge = document.getElementById("speakerBadge");
+  const notes = document.getElementById("notes");
+  const notesText = document.getElementById("notesText");
+  const notesTitle = document.getElementById("notesTitle");
+  const timerEl = document.getElementById("timer");
+  const help = document.getElementById("help");
+
+  const TOTAL_SECONDS = 10 * 60;
+  let current = 0;
+  let timerStart = null;
+  let timerInterval = null;
+
+  /* Scale the 1280x720 stage to fit any screen */
+  function fit() {
+    const scale = Math.min(window.innerWidth / 1280, window.innerHeight / 720);
+    stage.style.transform = "scale(" + scale + ")";
+  }
+  window.addEventListener("resize", fit);
+  fit();
+
+  function show(index) {
+    if (index < 0 || index >= slides.length) return;
+    slides.forEach(function (s, i) {
+      s.classList.toggle("active", i === index);
+      s.classList.toggle("prev", i < index);
+    });
+    current = index;
+    counter.textContent = (index + 1) + " / " + slides.length;
+    progress.style.width = ((index + 1) / slides.length * 100) + "%";
+    badge.innerHTML = "Speaker <b>" + slides[index].dataset.speaker + "</b>";
+
+    const n = slides[index].querySelector(".speaker-notes");
+    notesText.textContent = n ? n.textContent.trim() : "";
+    notesTitle.textContent = "SPEAKER " + slides[index].dataset.speaker + " · SLIDE " + (index + 1);
+
+    if (index > 0 && !timerStart) startTimer();
+  }
+
+  function startTimer() {
+    timerStart = Date.now();
+    clearInterval(timerInterval);
+    timerInterval = setInterval(updateTimer, 500);
+  }
+
+  function resetTimer() {
+    timerStart = null;
+    clearInterval(timerInterval);
+    timerEl.textContent = "00:00";
+    timerEl.classList.remove("over");
+  }
+
+  function updateTimer() {
+    const s = Math.floor((Date.now() - timerStart) / 1000);
+    const m = String(Math.floor(s / 60)).padStart(2, "0");
+    const sec = String(s % 60).padStart(2, "0");
+    timerEl.textContent = m + ":" + sec;
+    timerEl.classList.toggle("over", s > TOTAL_SECONDS);
+  }
+
+  function next() { show(current + 1); }
+  function prev() { show(current - 1); }
+
+  document.addEventListener("keydown", function (e) {
+    if (["ArrowRight", "ArrowDown", "PageDown", " ", "Enter"].includes(e.key)) { e.preventDefault(); next(); }
+    else if (["ArrowLeft", "ArrowUp", "PageUp", "Backspace"].includes(e.key)) { e.preventDefault(); prev(); }
+    else if (e.key === "Home") show(0);
+    else if (e.key === "End") show(slides.length - 1);
+    else if (e.key.toLowerCase() === "n") notes.classList.toggle("show");
+    else if (e.key.toLowerCase() === "t") resetTimer();
+    else if (e.key.toLowerCase() === "f") {
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+      else document.exitFullscreen();
+    }
+  });
+
+  /* Click: right half = next, left half = previous */
+  document.getElementById("viewport").addEventListener("click", function (e) {
+    if (e.clientX > window.innerWidth / 2) next(); else prev();
+  });
+
+  /* Swipe on touch screens */
+  let touchX = null;
+  document.addEventListener("touchstart", function (e) { touchX = e.touches[0].clientX; });
+  document.addEventListener("touchend", function (e) {
+    if (touchX === null) return;
+    const dx = e.changedTouches[0].clientX - touchX;
+    if (Math.abs(dx) > 50) { dx < 0 ? next() : prev(); }
+    touchX = null;
+  });
+
+  /* Hide help text after a few seconds */
+  setTimeout(function () { help.style.opacity = "0"; }, 5000);
+
+  show(0);
+</script>
+</body>
+</html>
